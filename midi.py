@@ -1,6 +1,7 @@
 import mido 
 import minescript as ms
 import time
+import sys, os
 
 DRUM_MAP = {
     35: "kick", 36: "kick",
@@ -9,18 +10,30 @@ DRUM_MAP = {
 
 NB_MIN, NB_MAX = 54, 78  # rozsah noteblocků v MIDI číslech
 
+def run_with_listener(x, y, z, events):
+    # start listener in background
+    ms.execute("\listen")
+    ms.execute(r"\align")
+    time.sleep(1)  # wait a bit for listener to start
+    tp_string = f"tp @p {x+25} {y+21} {z+15}"
+    ms.player_set_orientation(180, 90)
+    ms.execute(tp_string)
+    ms.chat("Track spawned! Now run the midi_to_noteblocks function with your MIDI file path.")
+    # now do your MIDI playback
+    spawn_minecarts_from_events(x, y, z, events, lead_time=0.5, tick_ms=10)
+
 def fold_octave(note: int) -> int:
-    """Vrátí notu složenou do rozsahu 54-78 (F#3..F#5)."""
+    """Moves notes into the range of NB_MIN..NB_MAX by shifting octaves."""
     while note < NB_MIN:
         note += 12
     while note > NB_MAX:
         note -= 12
     return note
 
-def midi_to_noteblocks(midi_file):
+def midi_to_noteblocks(midi_file, speed=1.0):
     mid = mido.MidiFile(midi_file)
     tpb = mid.ticks_per_beat
-    tempo = 500000  # default 120 BPM
+    tempo = 500000 / speed # default 120 BPM
     events = []
 
     for track in mid.tracks:
@@ -31,9 +44,8 @@ def midi_to_noteblocks(midi_file):
             if msg.time:
                 t_sec += mido.tick2second(msg.time, tpb, cur_tempo)
             if msg.type == "set_tempo":
-                cur_tempo = msg.tempo
+                cur_tempo = msg.tempo / speed
             elif msg.type == "note_on" and msg.velocity > 0:
-                # bubny = channel 9 (tj. 10. kanál v GM)
                 if getattr(msg, "channel", 0) == 9:
                     drum = DRUM_MAP.get(msg.note)
                     if drum:
@@ -82,7 +94,7 @@ def spawn_track():
     # return the starting coordinates of the track
     return x, y, z
 
-def spawn_minecarts_from_events(x, y, z, events, lead_time=2.0, tick_ms=10):
+def spawn_minecarts_from_events(x, y, z, events, lead_time=0.5, tick_ms=10):
     """
     Spustí minecarty podle fronty `events`.
     - x,y,z: začátek tvého tracku (z returnu spawn_track())
@@ -99,7 +111,6 @@ def spawn_minecarts_from_events(x, y, z, events, lead_time=2.0, tick_ms=10):
         now = time.perf_counter() - t0
         t, idx, vel, drum = events[i]
         if now + tick_ms/1000.0 >= t:
-            # rychlost podle velocity (0.35..0.80)
             vx = 0.35 + 0.45 * (vel / 127.0)
 
             if drum == "kick":
@@ -120,18 +131,39 @@ def spawn_minecarts_from_events(x, y, z, events, lead_time=2.0, tick_ms=10):
 
             ms.execute(summon_str)
             i += 1
-        else:
-            time.sleep(tick_ms/1000.0)
+        #else:
+            #time.sleep(tick_ms/1000.0)
 
 
 
 if __name__ == "__main__":
+    args = sys.argv[1]
+    if not args:
+        ms.chat("Usage: \midi list")
+        ms.chat("Usage: \midi <midi_file_path>")
+        sys.exit(1)
+    if args == "list":
+        ms.chat("Available MIDI files in 'midis' folder:")
+        midis_path = os.path.join(os.path.dirname(__file__), "midis")
+        for f in os.listdir(midis_path):
+            if f.lower().endswith(".mid") or f.lower().endswith(".midi"):
+                ms.chat(f"- {f}")
+        sys.exit(0)
+    if sys.argv[2]:
+        speed = float(sys.argv[2])
+        if speed <= 0.0:
+            speed = 1.0
+        elif speed > 10.0:
+            speed = 10.0
+    else:
+        speed = 1.0
+    
+    midi_file_path = os.path.join(os.path.dirname(__file__), "midis", args)
+    if not os.path.isfile(midi_file_path):
+        sys.exit(1)
+    
     ms.chat("starting midi")
     x,y,z = spawn_track()
-    events = midi_to_noteblocks("C:/Users/Adam/AppData/Roaming/ModrinthApp/profiles/Minescript dev/minescript/minescript-midi/midis/clair.mid")
-    tp_string = f"tp @p {x+25} {y+21} {z+15}"
-    ms.player_set_orientation(180, 90)
-    ms.execute(tp_string)
-    #spawn_minecarts(x, y, z)
-    ms.chat("Track spawned! Now run the midi_to_noteblocks function with your MIDI file path.")
-    spawn_minecarts_from_events(x, y, z, events, lead_time=2.0, tick_ms=10)
+    events = midi_to_noteblocks(midi_file_path, speed)
+    run_with_listener(x, y, z, events)
+    ms.execute("\stop_midi")

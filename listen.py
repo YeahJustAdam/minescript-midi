@@ -27,4 +27,5 @@ if __name__ == "__main__":
     ms.chat("Starting to listen for minecarts")
     x, y, z = [int(p) for p in ms.player().position]
     x = x + 1
+    ms.chat(f"Listening for minecarts corner x={x}, y={y}, z={z}")
     listen_for_minecatrts(x, y, z)
